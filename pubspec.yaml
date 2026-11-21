@@ -1,0 +1,52 @@
+name: toko_sembako
+description: Aplikasi kasir, stok, dan laporan untuk toko sembako.
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
+
+  # Backend & auth
+  supabase_flutter: ^2.5.6
+
+  # State management ringan
+  provider: ^6.1.2
+
+  # Format angka & tanggal (Rp, ribuan, dll)
+  intl: ^0.19.0
+
+  # Import/export Excel untuk fitur import barang
+  excel: ^4.0.3
+
+  # Pilih file dari HP (untuk upload file excel)
+  file_picker: ^8.0.0+1
+
+  # Minta izin penyimpanan (android)
+  permission_handler: ^11.3.1
+
+  # Simpan folder sementara untuk file template
+  path_provider: ^2.1.3
+
+  # Grafik laporan sederhana
+  fl_chart: ^0.68.0
+
+  # Ikon & UI tambahan
+  google_fonts: ^6.2.1
+
+  # Sharing file template excel
+  share_plus: ^9.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/template/

@@ -27,7 +27,7 @@ jobs:
           channel: "stable"
 
       - name: Buat folder Android (project awal belum menyertakannya)
-        run: flutter create --platforms=android --org com.tokosembako .
+        run: flutter create --platforms=android --org com.tokosembako --project-name toko_sembako .
 
       - name: Ambil dependencies
         run: flutter pub get
@@ -40,3 +40,4 @@ jobs:
         with:
           name: toko-sembako-apk
           path: build/app/outputs/flutter-apk/app-release.apk
+          

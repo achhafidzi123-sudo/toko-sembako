@@ -14,10 +14,10 @@ class SupabaseService {
   // ---------------- AUTH ----------------
   // Pengguna cukup memakai "username" biasa (bukan email Gmail dkk).
   // Di balik layar, Supabase Auth tetap butuh format email, jadi username
-  // diubah otomatis jadi "username@tokosembako.app" -- pengguna tidak perlu tahu ini.
+  // diubah otomatis jadi "username@tokosembako.com" -- pengguna tidak perlu tahu ini.
   String _emailDariUsername(String username) {
     final bersih = username.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9_.]'), '');
-    return '$bersih@tokosembako.app';
+    return '$bersih@tokosembako.com';
   }
 
   Future<AuthResponse> login(String username, String password) {

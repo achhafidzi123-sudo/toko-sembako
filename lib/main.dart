@@ -8,8 +8,8 @@ import 'screens/home_screen.dart';
 
 /// ISI DENGAN KREDENSIAL PROJECT SUPABASE KAMU SENDIRI.
 /// Lihat README.md bagian "Setup Supabase" untuk cara mendapatkannya.
-const String supabaseUrl = 'ISI_URL_SUPABASE_KAMU';
-const String supabaseAnonKey = 'ISI_ANON_KEY_SUPABASE_KAMU';
+const String supabaseUrl = 'https://csbgxkbfyxldxizuveqv.supabase.co';
+const String supabaseAnonKey = 'sb_publishable_2dIuvuIHwkflum_l6pZjsQ_m1ICiBWH';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();

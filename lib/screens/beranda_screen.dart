@@ -18,6 +18,7 @@ class _BerandaScreenState extends State<BerandaScreen> {
   double _totalHariIni = 0;
   int _jumlahTransaksi = 0;
   List<Product> _stokMenipis = [];
+  String _namaToko = 'Toko Saya';
 
   @override
   void initState() {
@@ -31,6 +32,7 @@ class _BerandaScreenState extends State<BerandaScreen> {
     final awalHari = DateTime(sekarang.year, sekarang.month, sekarang.day);
     final penjualan = await SupabaseService.instance.getPenjualanRange(awalHari, sekarang);
     final stokMenipis = await SupabaseService.instance.getProdukStokMenipis();
+    final profil = await SupabaseService.instance.getProfilSaya();
 
     double total = 0;
     for (final s in penjualan) {
@@ -42,8 +44,35 @@ class _BerandaScreenState extends State<BerandaScreen> {
       _totalHariIni = total;
       _jumlahTransaksi = penjualan.length;
       _stokMenipis = stokMenipis;
+      _namaToko = (profil?['nama_toko'] as String?) ?? 'Toko Saya';
       _loading = false;
     });
+  }
+
+  Future<void> _ubahNamaToko() async {
+    final ctrl = TextEditingController(text: _namaToko);
+    final hasil = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Ubah nama toko'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Nama toko'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Batal')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            child: const Text('Simpan'),
+          ),
+        ],
+      ),
+    );
+    if (hasil == null || hasil.isEmpty || hasil == _namaToko) return;
+    await SupabaseService.instance.updateNamaToko(hasil);
+    if (!mounted) return;
+    setState(() => _namaToko = hasil);
   }
 
   @override
@@ -57,7 +86,19 @@ class _BerandaScreenState extends State<BerandaScreen> {
                 : 'Selamat malam';
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Beranda')),
+      appBar: AppBar(
+        title: InkWell(
+          onTap: _ubahNamaToko,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(child: Text(_namaToko, overflow: TextOverflow.ellipsis)),
+              const SizedBox(width: 6),
+              const Icon(Icons.edit_outlined, size: 16, color: AppColors.textMuted),
+            ],
+          ),
+        ),
+      ),
       body: RefreshIndicator(
         onRefresh: _muat,
         child: _loading

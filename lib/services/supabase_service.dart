@@ -1,223 +1,223 @@
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter/material.dart';
+import '../services/supabase_service.dart';
+import '../theme/app_theme.dart';
+import '../utils/formatters.dart';
 import '../models/product.dart';
-import '../models/supplier.dart';
 
-/// Lapisan tunggal untuk semua akses ke Supabase.
-/// Semua layar memanggil method di sini, bukan langsung ke SupabaseClient,
-/// supaya query mudah diubah/ditest di satu tempat.
-class SupabaseService {
-  SupabaseService._();
-  static final SupabaseService instance = SupabaseService._();
+/// Halaman Beranda: ringkasan singkat kondisi toko hari ini,
+/// dirancang agar pemilik toko langsung paham situasi tanpa perlu menggali menu lain.
+class BerandaScreen extends StatefulWidget {
+  const BerandaScreen({super.key});
 
-  SupabaseClient get _db => Supabase.instance.client;
+  @override
+  State<BerandaScreen> createState() => _BerandaScreenState();
+}
 
-  // ---------------- AUTH ----------------
-  Future<AuthResponse> login(String email, String password) {
-    return _db.auth.signInWithPassword(email: email, password: password);
+class _BerandaScreenState extends State<BerandaScreen> {
+  bool _loading = true;
+  double _totalHariIni = 0;
+  int _jumlahTransaksi = 0;
+  List<Product> _stokMenipis = [];
+  String _namaToko = 'Toko Saya';
+
+  @override
+  void initState() {
+    super.initState();
+    _muat();
   }
 
-  Future<AuthResponse> daftar(String email, String password, String nama) {
-    return _db.auth.signUp(
-      email: email,
-      password: password,
-      data: {'nama': nama},
+  Future<void> _muat() async {
+    setState(() => _loading = true);
+    final sekarang = DateTime.now();
+    final awalHari = DateTime(sekarang.year, sekarang.month, sekarang.day);
+    final penjualan = await SupabaseService.instance.getPenjualanRange(awalHari, sekarang);
+    final stokMenipis = await SupabaseService.instance.getProdukStokMenipis();
+    final profil = await SupabaseService.instance.getProfilSaya();
+
+    double total = 0;
+    for (final s in penjualan) {
+      total += (s['total'] as num?)?.toDouble() ?? 0;
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _totalHariIni = total;
+      _jumlahTransaksi = penjualan.length;
+      _stokMenipis = stokMenipis;
+      _namaToko = (profil?['nama_toko'] as String?) ?? 'Toko Saya';
+      _loading = false;
+    });
+  }
+
+  Future<void> _ubahNamaToko() async {
+    final ctrl = TextEditingController(text: _namaToko);
+    final hasil = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Ubah nama toko'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Nama toko'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Batal')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            child: const Text('Simpan'),
+          ),
+        ],
+      ),
     );
+    if (hasil == null || hasil.isEmpty || hasil == _namaToko) return;
+    await SupabaseService.instance.updateNamaToko(hasil);
+    if (!mounted) return;
+    setState(() => _namaToko = hasil);
   }
 
-  Future<void> logout() => _db.auth.signOut();
+  @override
+  Widget build(BuildContext context) {
+    final jamSapaan = DateTime.now().hour < 11
+        ? 'Selamat pagi'
+        : DateTime.now().hour < 15
+            ? 'Selamat siang'
+            : DateTime.now().hour < 18
+                ? 'Selamat sore'
+                : 'Selamat malam';
 
-  User? get currentUser => _db.auth.currentUser;
-
-  // ---------------- KATEGORI ----------------
-  Future<List<ProductCategory>> getCategories() async {
-    final res = await _db.from('categories').select().order('nama');
-    return (res as List).map((e) => ProductCategory.fromMap(e)).toList();
-  }
-
-  // ---------------- PRODUK ----------------
-  Future<List<Product>> getProducts({String? search, String? categoryId}) async {
-    var query = _db.from('products').select('*, categories(nama)').eq('aktif', true);
-    if (search != null && search.trim().isNotEmpty) {
-      query = query.ilike('nama_barang', '%${search.trim()}%');
-    }
-    if (categoryId != null) {
-      query = query.eq('category_id', categoryId);
-    }
-    final res = await query.order('nama_barang');
-    return (res as List).map((e) => Product.fromMap(e)).toList();
-  }
-
-  Future<List<Product>> getProdukStokMenipis() async {
-    final res = await _db
-        .from('products')
-        .select('*, categories(nama)')
-        .eq('aktif', true)
-        .order('stok');
-    return (res as List)
-        .map((e) => Product.fromMap(e))
-        .where((p) => p.stokMenipis)
-        .toList();
-  }
-
-  Future<void> tambahProduk(Product produk) async {
-    await _db.from('products').insert(produk.toInsertMap());
-  }
-
-  Future<void> updateProduk(String id, Map<String, dynamic> perubahan) async {
-    await _db.from('products').update(perubahan).eq('id', id);
-  }
-
-  Future<void> nonaktifkanProduk(String id) async {
-    await _db.from('products').update({'aktif': false}).eq('id', id);
-  }
-
-  /// Import massal dari file Excel. Baris yang nama_barang-nya sama (case-insensitive)
-  /// dengan produk yang sudah ada akan di-update, sisanya ditambahkan sebagai baru.
-  Future<ImportResult> importProdukMassal(List<Map<String, dynamic>> baris) async {
-    final existing = await _db.from('products').select('id, nama_barang');
-    final mapExisting = <String, String>{
-      for (final p in (existing as List)) (p['nama_barang'] as String).toLowerCase(): p['id'] as String,
-    };
-
-    int ditambah = 0;
-    int diupdate = 0;
-    int gagal = 0;
-
-    for (final row in baris) {
-      try {
-        final nama = (row['nama_barang'] as String?)?.trim();
-        if (nama == null || nama.isEmpty) continue;
-
-        final data = {
-          'nama_barang': nama,
-          'satuan': (row['satuan'] as String?)?.trim().isNotEmpty == true ? row['satuan'] : 'pcs',
-          'harga_modal': row['harga_modal'] ?? 0,
-          'harga_jual': row['harga_jual'] ?? 0,
-          'harga_pack': row['harga_pack'],
-          'stok': row['stok'] ?? 0,
-        };
-
-        final existingId = mapExisting[nama.toLowerCase()];
-        if (existingId != null) {
-          await _db.from('products').update(data).eq('id', existingId);
-          diupdate++;
-        } else {
-          await _db.from('products').insert(data);
-          ditambah++;
-        }
-      } catch (_) {
-        gagal++;
-      }
-    }
-    return ImportResult(ditambah: ditambah, diupdate: diupdate, gagal: gagal);
-  }
-
-  // ---------------- TRANSAKSI PENJUALAN (KASIR) ----------------
-  Future<String> simpanTransaksiPenjualan({
-    required List<Map<String, dynamic>> items, // product_id, nama, harga_satuan, jumlah, subtotal
-    required double total,
-    required String metodeBayar,
-    double? uangDiterima,
-    double? kembalian,
-    String? namaPelanggan,
-  }) async {
-    final nomorInvoice = 'INV-${DateTime.now().millisecondsSinceEpoch}';
-    final sale = await _db
-        .from('sales')
-        .insert({
-          'nomor_invoice': nomorInvoice,
-          'total': total,
-          'metode_bayar': metodeBayar,
-          'uang_diterima': uangDiterima,
-          'kembalian': kembalian,
-          'nama_pelanggan': namaPelanggan,
-          'kasir_id': currentUser?.id,
-        })
-        .select()
-        .single();
-
-    final saleId = sale['id'] as String;
-
-    final itemRows = items
-        .map((it) => {
-              'sale_id': saleId,
-              'product_id': it['product_id'],
-              'nama_barang_snapshot': it['nama'],
-              'harga_satuan': it['harga_satuan'],
-              'jumlah': it['jumlah'],
-              'subtotal': it['subtotal'],
-            })
-        .toList();
-
-    await _db.from('sale_items').insert(itemRows);
-    return nomorInvoice;
-  }
-
-  // ---------------- SUPPLIER ----------------
-  Future<List<Supplier>> getSuppliers() async {
-    final res = await _db.from('suppliers').select().order('nama');
-    return (res as List).map((e) => Supplier.fromMap(e)).toList();
-  }
-
-  Future<void> tambahSupplier(Supplier s) async {
-    await _db.from('suppliers').insert(s.toInsertMap());
-  }
-
-  // ---------------- PEMBELIAN (BELANJA KE PABRIK/SUPPLIER) ----------------
-  Future<void> simpanPembelian({
-    String? supplierId,
-    String? nomorNota,
-    required List<Map<String, dynamic>> items, // product_id, nama, harga_beli_satuan, jumlah, subtotal
-    required double total,
-    String statusBayar = 'lunas',
-    double jumlahDibayar = 0,
-    String? catatan,
-  }) async {
-    final purchase = await _db
-        .from('purchases')
-        .insert({
-          'nomor_nota': nomorNota,
-          'supplier_id': supplierId,
-          'total': total,
-          'status_bayar': statusBayar,
-          'jumlah_dibayar': jumlahDibayar,
-          'catatan': catatan,
-          'dibuat_oleh': currentUser?.id,
-        })
-        .select()
-        .single();
-
-    final purchaseId = purchase['id'] as String;
-
-    final itemRows = items
-        .map((it) => {
-              'purchase_id': purchaseId,
-              'product_id': it['product_id'],
-              'nama_barang_snapshot': it['nama'],
-              'harga_beli_satuan': it['harga_beli_satuan'],
-              'jumlah': it['jumlah'],
-              'subtotal': it['subtotal'],
-            })
-        .toList();
-
-    await _db.from('purchase_items').insert(itemRows);
-  }
-
-  // ---------------- LAPORAN ----------------
-  Future<List<Map<String, dynamic>>> getPenjualanRange(DateTime dari, DateTime sampai) async {
-    final res = await _db
-        .from('sales')
-        .select('*, sale_items(*)')
-        .gte('created_at', dari.toIso8601String())
-        .lte('created_at', sampai.toIso8601String())
-        .order('created_at', ascending: false);
-    return List<Map<String, dynamic>>.from(res as List);
+    return Scaffold(
+      appBar: AppBar(
+        title: InkWell(
+          onTap: _ubahNamaToko,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(child: Text(_namaToko, overflow: TextOverflow.ellipsis)),
+              const SizedBox(width: 6),
+              const Icon(Icons.edit_outlined, size: 16, color: AppColors.textMuted),
+            ],
+          ),
+        ),
+      ),
+      body: RefreshIndicator(
+        onRefresh: _muat,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  Text(jamSapaan, style: Theme.of(context).textTheme.bodyMedium),
+                  Text('Ini ringkasan toko kamu hari ini', style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _KartuRingkasan(
+                          label: 'Penjualan Hari Ini',
+                          nilai: formatRupiah(_totalHariIni),
+                          ikon: Icons.payments_rounded,
+                          warna: AppColors.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _KartuRingkasan(
+                          label: 'Transaksi',
+                          nilai: '$_jumlahTransaksi',
+                          ikon: Icons.receipt_long_rounded,
+                          warna: AppColors.accent,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Stok Menipis', style: Theme.of(context).textTheme.titleLarge),
+                      if (_stokMenipis.isNotEmpty)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: AppColors.danger.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text('${_stokMenipis.length} barang',
+                              style: const TextStyle(color: AppColors.danger, fontWeight: FontWeight.w600, fontSize: 12)),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  if (_stokMenipis.isEmpty)
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.check_circle_rounded, color: AppColors.primary),
+                            const SizedBox(width: 10),
+                            Expanded(child: Text('Semua stok aman', style: Theme.of(context).textTheme.bodyLarge)),
+                          ],
+                        ),
+                      ),
+                    )
+                  else
+                    ..._stokMenipis.take(6).map(
+                          (p) => Card(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            child: ListTile(
+                              leading: const CircleAvatar(
+                                backgroundColor: Color(0xFFFFEBEE),
+                                child: Icon(Icons.inventory_2_outlined, color: AppColors.danger),
+                              ),
+                              title: Text(p.namaBarang, style: Theme.of(context).textTheme.titleMedium),
+                              subtitle: Text('Sisa stok: ${formatAngka(p.stok)} ${p.satuan}'),
+                              trailing: const Icon(Icons.chevron_right),
+                            ),
+                          ),
+                        ),
+                  const SizedBox(height: 32),
+                  Center(
+                    child: Text(
+                      'Created by Afi Hafidzi',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppColors.textMuted, fontSize: 12),
+                    ),
+                  ),
+                ],
+              ),
+      ),
+    );
   }
 }
 
-class ImportResult {
-  final int ditambah;
-  final int diupdate;
-  final int gagal;
-  ImportResult({required this.ditambah, required this.diupdate, required this.gagal});
+class _KartuRingkasan extends StatelessWidget {
+  final String label;
+  final String nilai;
+  final IconData ikon;
+  final Color warna;
+
+  const _KartuRingkasan({required this.label, required this.nilai, required this.ikon, required this.warna});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(color: warna.withOpacity(0.12), borderRadius: BorderRadius.circular(12)),
+              child: Icon(ikon, color: warna, size: 22),
+            ),
+            const SizedBox(height: 12),
+            Text(label, style: Theme.of(context).textTheme.bodyMedium),
+            const SizedBox(height: 2),
+            Text(nilai, style: Theme.of(context).textTheme.titleLarge),
+          ],
+        ),
+      ),
+    );
+  }
 }
